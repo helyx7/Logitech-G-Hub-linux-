@@ -2,7 +2,7 @@
 # Binary package built from the GitHub release's .deb; for the AUR as openghub-bin.
 pkgname=openghub-bin
 pkgver=0.1.4
-pkgrel=1
+pkgrel=2
 pkgdesc="Open source Logitech G HUB for Linux — DPI, lighting, assignments, wheels, over HID++"
 arch=('x86_64')
 url="https://github.com/Slyvan25/OpenGHub"
@@ -15,11 +15,17 @@ provides=('openghub')
 conflicts=('openghub')
 source=("${url}/releases/download/v${pkgver}/OpenGHub_${pkgver}_amd64.deb")
 install=openghub-bin.install
-sha256sums=('SKIP')
+sha256sums=('762eb9f7c2ba1aae6199a19129660741d0a5ddeac59e3adc1ced39a50950850d')
 
 package() {
     bsdtar -xf data.tar.* -C "$pkgdir"
-    # Debian puts the rule in /usr/lib/udev; that is right for Arch too.
-    install -Dm644 "$pkgdir/usr/lib/udev/rules.d/70-openghub.rules" \
-        "$pkgdir/usr/lib/udev/rules.d/70-openghub.rules"
+    # The .deb already ships the udev rule in /usr/lib/udev/rules.d, which is
+    # right for Arch too, so nothing to move.
+
+    # Let app launchers find it by searching "logitech", "g hub", "mouse", ...
+    local desktop="$pkgdir/usr/share/applications/OpenGHub.desktop"
+    grep -q '^GenericName=' "$desktop" ||
+        sed -i '/^Name=/a GenericName=Logitech G HUB' "$desktop"
+    grep -q '^Keywords=' "$desktop" ||
+        echo 'Keywords=logitech;g hub;ghub;mouse;keyboard;headset;wheel;dpi;rgb;lighting;' >> "$desktop"
 }

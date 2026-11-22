@@ -21,23 +21,42 @@
 
 ---
 
+<p align="center">
+  <a href="docs/GUIDE.md"><b>📘 Beginner guide</b></a> ·
+  <a href="#quick-install-arch--cachyos"><b>⚡ Quick install</b></a> ·
+  <a href="#what-you-get"><b>✨ Features</b></a> ·
+  <a href="docs/GUIDE.md#8-troubleshooting"><b>🛠 Troubleshooting</b></a>
+</p>
+
 > [!NOTE]
-> **About this repository.** This is helyx7's copy of [Slyvan25/OpenGHub](https://github.com/Slyvan25/OpenGHub), kept with its full history and MIT licence. All credit for the code goes to the original author, Silvan Paul. OpenGHub is not affiliated with Logitech.
+> **About this repository.** This is helyx7's copy of [Slyvan25/OpenGHub](https://github.com/Slyvan25/OpenGHub), kept with its full history and MIT licence. All credit for the code goes to the original author, Silvan Paul. OpenGHub is not affiliated with or endorsed by Logitech.
 >
-> **Quick install on Arch / CachyOS** (the `openghub-bin` AUR package mentioned below is not published yet):
->
-> ```sh
-> mkdir -p ~/tools/openghub-pkg && cd ~/tools/openghub-pkg
-> gh release download v0.1.4 -R Slyvan25/OpenGHub -p PKGBUILD -p openghub-bin.install
-> makepkg -si
-> ```
->
-> **Getting updates from the original project:**
->
-> ```sh
-> git remote add upstream https://github.com/Slyvan25/OpenGHub.git   # once
-> git pull upstream master && git push origin master
-> ```
+> Changes in this copy: a fixed Arch package ([`packaging/arch/PKGBUILD`](packaging/arch/PKGBUILD)) and a step-by-step [beginner guide](docs/GUIDE.md).
+
+## Quick install (Arch / CachyOS)
+
+```sh
+git clone https://github.com/helyx7/Logitech-G-Hub-linux-.git ~/work/Logitech-G-Hub-linux-
+cd ~/work/Logitech-G-Hub-linux-/packaging/arch
+makepkg -si          # builds the package from the official release and installs it
+```
+
+Then unplug and replug your device (or its receiver), and search **logitech** in your app launcher. The full walkthrough is in the [beginner guide](docs/GUIDE.md).
+
+<details>
+<summary>Why not the release's own PKGBUILD?</summary>
+
+The `PKGBUILD` attached to the v0.1.4 release fails in `package()`: it copies the udev rule onto itself, and `install` refuses that ("are the same file"). It also skips the checksum. The copy in `packaging/arch/` fixes both, and adds launcher keywords so searching "logitech" finds the app. The `openghub-bin` AUR package the table below mentions is not published yet.
+</details>
+
+<details>
+<summary>Pulling updates from the original project</summary>
+
+```sh
+git remote add upstream https://github.com/Slyvan25/OpenGHub.git   # once
+git pull upstream master && git push origin master
+```
+</details>
 
 OpenGHub talks to Logitech peripherals directly over **HID++ 2.0** through `hidraw`, the way G HUB does on Windows — so the things the device itself supports work exactly as they do there, and the things G HUB does in software are done here in userspace. Built with Tauri 2, Svelte 5 and Rust.
 
@@ -49,7 +68,7 @@ Grab the package for your distribution from the [latest release](https://github.
 | --- | --- | --- |
 | Debian, Ubuntu, Mint, Pop!_OS | `OpenGHub_x.y.z_amd64.deb` | `sudo apt install ./OpenGHub_*_amd64.deb` |
 | Fedora, openSUSE, RHEL | `OpenGHub-x.y.z-1.x86_64.rpm` | `sudo dnf install ./OpenGHub-*.rpm` |
-| Arch, Manjaro, EndeavourOS, CachyOS | `PKGBUILD` + `openghub-bin.install` | `makepkg -si` in a folder with both files (not on the AUR yet) |
+| Arch, Manjaro, EndeavourOS, CachyOS | [`packaging/arch/`](packaging/arch) | `makepkg -si` in that folder (see [Quick install](#quick-install-arch--cachyos); not on the AUR yet) |
 | Flatpak (any distribution) | `OpenGHub_x.y.z.flatpak` | `flatpak install --user OpenGHub_*.flatpak` |
 | Anything else | `OpenGHub_x.y.z_amd64.AppImage` | `chmod +x OpenGHub_*.AppImage && ./OpenGHub_*.AppImage` |
 
