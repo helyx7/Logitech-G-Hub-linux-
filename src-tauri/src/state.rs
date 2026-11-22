@@ -1734,6 +1734,8 @@ fn probe(handle: &mut Handle, snapshot: &mut DeviceSnapshot, endpoint: &hidpp::E
     snapshot.serial = endpoint.serial.clone();
     snapshot.connection = if endpoint.is_receiver {
         Connection::Receiver
+    } else if endpoint.bluetooth {
+        Connection::Bluetooth
     } else if handle.address.device_index == hidpp::DEVICE_INDEX_WIRED {
         Connection::Wired
     } else {

@@ -221,6 +221,14 @@ impl Packet {
         })
     }
 
+    /// The same request as a long report, parameters zero-padded. HID++ 2.0
+    /// devices answer a long request exactly as they answer the short one.
+    pub fn into_long(mut self) -> Self {
+        self.params.resize(ReportKind::Long.params_len(), 0);
+        self.kind = ReportKind::Long;
+        self
+    }
+
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut out = vec![0u8; self.kind.len()];
         out[0] = self.kind.report_id();
@@ -341,6 +349,9 @@ pub struct Handle {
     /// waiting for a reply — button spy reports, battery events. Consumed by
     /// [`Handle::poll_events`].
     events: std::collections::VecDeque<Packet>,
+    /// False when the HID descriptor declares no short (`0x10`) report, as on
+    /// Bluetooth Low Energy devices. Short requests are then sent as long ones.
+    short_supported: bool,
 }
 
 /// Notifications older than this are dropped rather than replayed late.
@@ -353,6 +364,10 @@ impl Handle {
             .map_err(|_| Error::other("hid path contained a NUL byte"))?;
         let device = api.open_path(&cpath)?;
         device.set_blocking_mode(false)?;
+        // Unknown descriptor (not hidraw, unreadable): keep the old behaviour.
+        let short_supported = report_ids(&address.path)
+            .map(|ids| ids.contains(&REPORT_ID_SHORT))
+            .unwrap_or(true);
         let mut handle = Handle {
             device,
             address,
@@ -360,6 +375,7 @@ impl Handle {
             unsupported: HashSet::new(),
             protocol_version: (0, 0),
             events: std::collections::VecDeque::new(),
+            short_supported,
         };
         handle.protocol_version = handle.ping().unwrap_or((0, 0));
         Ok(handle)
@@ -483,7 +499,10 @@ impl Handle {
     /// Replies are correlated on `(device_index, feature_index, function|software id)`.
     /// Anything else — notifications, traffic for a sibling device on the same
     /// receiver — is discarded, so an idle mouse moving does not desync us.
-    pub fn exchange(&mut self, request: Packet) -> Result<Packet> {
+    pub fn exchange(&mut self, mut request: Packet) -> Result<Packet> {
+        if request.kind == ReportKind::Short && !self.short_supported {
+            request = request.into_long();
+        }
         let bytes = request.to_bytes();
         // Drop anything stale that arrived since the last call.
         self.drain();
@@ -588,14 +607,112 @@ pub struct Endpoint {
     /// True when this endpoint is a Unifying/Lightspeed receiver rather than a
     /// directly attached device.
     pub is_receiver: bool,
+    /// True when the device is connected straight over Bluetooth.
+    pub bluetooth: bool,
+}
+
+/// Vendor usage page Logitech uses for HID++ over USB and receivers.
+const USAGE_PAGE_HIDPP: u16 = 0xff00;
+/// Vendor usage page / usage Logitech uses for HID++ over Bluetooth Low Energy.
+const USAGE_PAGE_HIDPP_BLE: u16 = 0xff43;
+const USAGE_HIDPP_BLE: u16 = 0x0202;
+/// `BUS_BLUETOOTH` from `linux/input.h`, as it appears in a hidraw uevent's `HID_ID`.
+const BUS_BLUETOOTH: u16 = 0x0005;
+
+/// True for a HID interface that carries HID++ traffic.
+fn is_hidpp_interface(usage_page: u16, usage: u16, interface_number: i32) -> bool {
+    usage_page == USAGE_PAGE_HIDPP
+        || (usage_page == USAGE_PAGE_HIDPP_BLE && usage == USAGE_HIDPP_BLE)
+        || (usage_page == 0 && (interface_number == 1 || interface_number == 2))
+}
+
+/// The bus a hidraw node is on (`0x0003` USB, `0x0005` Bluetooth), from the
+/// `HID_ID=0005:0000046D:0000B378` line of its uevent.
+fn hidraw_bus(hidraw_path: &str) -> Option<u16> {
+    let node = std::path::Path::new(hidraw_path).file_name()?.to_str()?;
+    let uevent = std::fs::read_to_string(format!("/sys/class/hidraw/{node}/device/uevent")).ok()?;
+    let id = uevent.lines().find_map(|l| l.strip_prefix("HID_ID="))?;
+    u16::from_str_radix(id.split(':').next()?, 16).ok()
+}
+
+/// True for a sysfs HID device name such as `0003:046D:C547.0010`.
+fn is_hid_device_name(name: &str) -> bool {
+    let Some((ids, instance)) = name.rsplit_once('.') else { return false };
+    let parts: Vec<&str> = ids.split(':').collect();
+    parts.len() == 3
+        && parts.iter().all(|p| p.len() == 4 && p.chars().all(|c| c.is_ascii_hexdigit()))
+        && !instance.is_empty()
+        && instance.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// True when a real sysfs HID device path is nested inside another HID device,
+/// e.g. `…/0003:046D:C547.0010/0003:046D:4099.0011`: the node the kernel's
+/// `logitech-dj` driver creates for a device paired to a receiver.
+fn is_nested_hid_path(real_path: &std::path::Path) -> bool {
+    let name_of = |p: Option<&std::path::Path>| p.and_then(|p| p.file_name()).and_then(|n| n.to_str()).map(str::to_owned);
+    match (name_of(Some(real_path)), name_of(real_path.parent())) {
+        (Some(me), Some(parent)) => is_hid_device_name(&me) && is_hid_device_name(&parent),
+        _ => false,
+    }
+}
+
+/// True for the per-device node of a device paired to a receiver. That node
+/// rewrites the device index on the way out but not on replies, so requests on
+/// it never match and each one waits out the full timeout. The same device is
+/// reached through the receiver's own node instead.
+fn is_receiver_child_node(hidraw_path: &str) -> bool {
+    let Some(node) = std::path::Path::new(hidraw_path).file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    std::fs::canonicalize(format!("/sys/class/hidraw/{node}/device"))
+        .map(|real| is_nested_hid_path(&real))
+        .unwrap_or(false)
+}
+
+/// Every report id a hidraw node's descriptor declares, or `None` when the
+/// descriptor cannot be read.
+fn report_ids(hidraw_path: &str) -> Option<HashSet<u8>> {
+    let node = std::path::Path::new(hidraw_path).file_name()?.to_str()?;
+    let descriptor = std::fs::read(format!("/sys/class/hidraw/{node}/device/report_descriptor")).ok()?;
+    Some(parse_report_ids(&descriptor))
+}
+
+/// Walks a HID report descriptor item by item and collects its Report ID
+/// items (`0x85 <id>`). Walking, rather than searching for the two bytes,
+/// keeps data bytes that happen to read `85 10` from counting.
+fn parse_report_ids(descriptor: &[u8]) -> HashSet<u8> {
+    const LONG_ITEM: u8 = 0xfe;
+    const REPORT_ID_ITEM: u8 = 0x85;
+    let mut ids = HashSet::new();
+    let mut i = 0;
+    while i < descriptor.len() {
+        let prefix = descriptor[i];
+        if prefix == LONG_ITEM {
+            // [0xfe, data_size, long_item_tag, data...]
+            let size = descriptor.get(i + 1).copied().unwrap_or(0) as usize;
+            i += 3 + size;
+            continue;
+        }
+        let size = match prefix & 0x03 {
+            3 => 4,
+            n => n as usize,
+        };
+        if prefix == REPORT_ID_ITEM {
+            if let Some(id) = descriptor.get(i + 1) {
+                ids.insert(*id);
+            }
+        }
+        i += 1 + size;
+    }
+    ids
 }
 
 /// Finds every Logitech HID++ endpoint on the system.
 ///
 /// Logitech devices expose several HID interfaces (mouse, keyboard, consumer
-/// control, HID++). Only the vendor one — usage page `0xFF00` — accepts HID++
-/// traffic, so we filter on that, falling back to interface number 1/2 on
-/// backends that do not report usage pages.
+/// control, HID++). Only the vendor one accepts HID++ traffic: usage page
+/// `0xFF00` over USB and receivers, `0xFF43` usage `0x0202` over Bluetooth.
+/// Backends that do not report usage pages fall back to interface number 1/2.
 pub fn enumerate(api: &HidApi) -> Vec<Endpoint> {
     let mut out = Vec::new();
     for info in api.device_list() {
@@ -607,10 +724,7 @@ pub fn enumerate(api: &HidApi) -> Vec<Endpoint> {
         if crate::wheel::is_classic(info.product_id()) {
             continue;
         }
-        let usage_page = info.usage_page();
-        let iface = info.interface_number();
-        let looks_vendor = usage_page == 0xff00 || (usage_page == 0 && (iface == 1 || iface == 2));
-        if !looks_vendor {
+        if !is_hidpp_interface(info.usage_page(), info.usage(), info.interface_number()) {
             continue;
         }
         let Some(path) = info.path().to_str().ok().map(str::to_owned) else {
@@ -620,7 +734,11 @@ pub fn enumerate(api: &HidApi) -> Vec<Endpoint> {
         if out.iter().any(|e: &Endpoint| e.address.path == path) {
             continue;
         }
+        if is_receiver_child_node(&path) {
+            continue;
+        }
         let pid = info.product_id();
+        let bluetooth = hidraw_bus(&path) == Some(BUS_BLUETOOTH);
         out.push(Endpoint {
             address: DeviceAddress {
                 path,
@@ -632,6 +750,7 @@ pub fn enumerate(api: &HidApi) -> Vec<Endpoint> {
             hid_product: info.product_string().map(str::to_owned),
             serial: info.serial_number().map(str::to_owned),
             is_receiver: registry::is_receiver(pid),
+            bluetooth,
         });
     }
     out
@@ -658,6 +777,73 @@ mod tests {
         let bytes = p.to_bytes();
         assert_eq!(bytes.len(), LONG_LEN);
         assert_eq!(bytes[3], (0x03 << 4) | SOFTWARE_ID);
+        assert!(bytes[7..].iter().all(|b| *b == 0));
+    }
+
+    // HID++ collection of an MX Keys S over Bluetooth (046d:b378): long only.
+    const BLE_DESCRIPTOR: [u8; 28] = [
+        0x06, 0x43, 0xff, 0x0a, 0x02, 0x02, 0xa1, 0x01, 0x85, 0x11, 0x95, 0x13, 0x75, 0x08,
+        0x15, 0x00, 0x26, 0xff, 0x00, 0x09, 0x02, 0x81, 0x00, 0x09, 0x02, 0x91, 0x00, 0xc0,
+    ];
+    // Short and long HID++ collections of a G502 X PLUS behind its receiver.
+    const RECEIVER_DESCRIPTOR: [u8; 38] = [
+        0x06, 0x00, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x10, 0x75, 0x08, 0x95, 0x06, 0x15,
+        0x00, 0x26, 0xff, 0x00, 0x09, 0x01, 0x81, 0x00, 0x09, 0x01, 0x91, 0x00, 0xc0, 0x06,
+        0x00, 0xff, 0x09, 0x02, 0xa1, 0x01, 0x85, 0x11, 0x75, 0x08,
+    ];
+
+    #[test]
+    fn bluetooth_descriptor_has_only_the_long_report() {
+        let ids = parse_report_ids(&BLE_DESCRIPTOR);
+        assert!(ids.contains(&REPORT_ID_LONG));
+        assert!(!ids.contains(&REPORT_ID_SHORT));
+    }
+
+    #[test]
+    fn receiver_descriptor_has_short_and_long_reports() {
+        let ids = parse_report_ids(&RECEIVER_DESCRIPTOR);
+        assert!(ids.contains(&REPORT_ID_SHORT));
+        assert!(ids.contains(&REPORT_ID_LONG));
+    }
+
+    #[test]
+    fn report_id_bytes_inside_item_data_are_not_report_ids() {
+        // Usage Page 0x1085 (data bytes 85 10), then a real Report ID 0x11.
+        let ids = parse_report_ids(&[0x06, 0x85, 0x10, 0x85, 0x11]);
+        assert_eq!(ids, HashSet::from([0x11]));
+    }
+
+    #[test]
+    fn bluetooth_hidpp_interface_is_recognised() {
+        assert!(is_hidpp_interface(USAGE_PAGE_HIDPP_BLE, USAGE_HIDPP_BLE, -1));
+        assert!(is_hidpp_interface(USAGE_PAGE_HIDPP, 0x0001, 2));
+        // The keyboard collection of the same Bluetooth device is not HID++.
+        assert!(!is_hidpp_interface(0x0001, 0x0006, -1));
+        assert!(!is_hidpp_interface(USAGE_PAGE_HIDPP_BLE, 0x0001, -1));
+    }
+
+    #[test]
+    fn receiver_child_nodes_are_recognised_by_their_sysfs_path() {
+        use std::path::Path;
+        // Paths read off a G502 X PLUS behind a c547 receiver and an MX Keys S over Bluetooth.
+        let usb = "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1.4/1-1.4.3/1-1.4.3:1.2";
+        assert!(is_nested_hid_path(Path::new(&format!("{usb}/0003:046D:C547.0010/0003:046D:4099.0011"))));
+        assert!(!is_nested_hid_path(Path::new(&format!("{usb}/0003:046D:C547.0010"))));
+        assert!(!is_nested_hid_path(Path::new("/sys/devices/virtual/misc/uhid/0005:046D:B378.000D")));
+        assert!(is_hid_device_name("0003:046D:C547.0010"));
+        assert!(!is_hid_device_name("1-1.4.3:1.2"));
+        assert!(!is_hid_device_name("uhid"));
+    }
+
+    #[test]
+    fn short_request_promoted_to_long_keeps_its_header_and_params() {
+        let short = Packet::request(ReportKind::Short, 0xff, 0x00, 0x01, &[0x00, 0x00, 0x5a]);
+        let long = short.clone().into_long();
+        assert_eq!(long.kind, ReportKind::Long);
+        let bytes = long.to_bytes();
+        assert_eq!(bytes.len(), LONG_LEN);
+        assert_eq!(bytes[0], REPORT_ID_LONG);
+        assert_eq!(&bytes[1..7], &short.to_bytes()[1..7]);
         assert!(bytes[7..].iter().all(|b| *b == 0));
     }
 
