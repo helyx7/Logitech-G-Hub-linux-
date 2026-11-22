@@ -18,6 +18,10 @@ optdepends=('gstreamer: screen sampler'
             'libpulse: audio visualizer (parec)')
 provides=('openghub')
 conflicts=('openghub' 'openghub-bin')
+# makepkg's LTO flags make cc build the bundled C libraries (hidapi, sqlite,
+# lua) as GCC LTO bytecode, which rustc's linker cannot read: the link fails
+# with "undefined symbol: hid_enumerate". Cargo's own LTO stays on.
+options=('!lto')
 install=openghub-local.install
 _repo="$(cd "$startdir/../.." && pwd)"
 source=("openghub::git+file://${_repo}")

@@ -75,5 +75,8 @@ fi
 
 say "Building and installing (this takes a few minutes; asks for your password)"
 cd packaging/arch-source
+# makepkg writes the computed version back into the PKGBUILD; undo that so
+# the repository stays clean for the next update.
+trap 'git -C "$repo" checkout --quiet -- packaging/arch-source/PKGBUILD' EXIT
 makepkg -si --needed --cleanbuild
 say "Done. Restart OpenGHub to use the new version."
