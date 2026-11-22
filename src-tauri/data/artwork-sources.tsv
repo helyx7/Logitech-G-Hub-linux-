@@ -1,0 +1,24 @@
+# Product renders on Logitech's public CDN, keyed by HID product id.
+#
+# Read by the app (src-tauri/src/artwork.rs, compiled in) and by
+# scripts/fetch-artwork.sh, so the two always agree. Images are downloaded to
+# the user's own machine at runtime and never redistributed with OpenGHub.
+#
+# Columns, tab-separated:
+#   product id   lowercase hex, 4 digits. Any id the device reports works:
+#                its USB, receiver (wpid) or Bluetooth id.
+#   site         g = resource.logitechg.com/.../content/dam/gaming/en/products/
+#                l = resource.logitech.com/.../content/dam/logitech/en/products/
+#   path         path under that prefix
+#
+# Only add a line after checking the URL returns a real image (HTTP 200 and
+# more than a few hundred bytes). A wrong path returns 404.
+#
+# Verified 2026-11-22.
+c08d	g	g502-lightspeed-gaming-mouse/g502-lightspeed-gallery-1.png
+407f	g	g502-lightspeed-gaming-mouse/g502-lightspeed-gallery-1.png
+c095	g	g502x-plus/2026-update/gallery/g502-x-plus-top-angle-black-gallery-1.png
+4099	g	g502x-plus/2026-update/gallery/g502-x-plus-top-angle-black-gallery-1.png
+407c	g	g915/g915-gallery-1.png
+c33e	g	g915/g915-gallery-1.png
+b378	l	keyboards/mx-keys-s/product-gallery/graphite/mx-keys-s-keyboard-top-view-graphite-us.png

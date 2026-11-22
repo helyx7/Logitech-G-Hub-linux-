@@ -320,8 +320,9 @@ fn tray_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 pub const EVENT_ARTWORK_CHANGED: &str = "artwork-changed";
 
 /// Fetches renders for any connected device that has none — what G HUB does the
-/// first time it sees a device. Silent when no depository has been imported,
-/// and never retries a product id that already failed this session.
+/// first time it sees a device. Uses the G HUB depot when a depository has been
+/// imported, and otherwise (or when that fails) the product render from
+/// Logitech's website. Never retries a product id that already failed this session.
 pub fn spawn_artwork_fetch(app: tauri::AppHandle, devices: Vec<state::DeviceSnapshot>) {
     use std::collections::HashSet;
     use std::sync::{Mutex, OnceLock};
@@ -331,9 +332,7 @@ pub fn spawn_artwork_fetch(app: tauri::AppHandle, devices: Vec<state::DeviceSnap
         if !app.state::<Store>().get().settings.auto_fetch_artwork {
             return;
         }
-        if depot::load_cache().is_err() {
-            return; // nothing imported yet; the settings screen explains
-        }
+        let have_depot = depot::load_cache().is_ok();
         let have = artwork::scan();
         let tried = TRIED.get_or_init(|| Mutex::new(HashSet::new()));
         let mut fetched_any = false;
@@ -351,12 +350,23 @@ pub fn spawn_artwork_fetch(app: tauri::AppHandle, devices: Vec<state::DeviceSnap
                 }
                 t.extend(ids.iter().copied());
             }
-            match depot::fetch_for_product_ids(&ids) {
-                Ok(d) => {
-                    log::info!("fetched artwork for {}", d.display_name);
+            if have_depot {
+                match depot::fetch_for_product_ids(&ids) {
+                    Ok(d) => {
+                        log::info!("fetched artwork for {}", d.display_name);
+                        fetched_any = true;
+                        continue;
+                    }
+                    Err(e) => log::warn!("depot artwork for {} not fetched: {e}", device.name),
+                }
+            }
+            match artwork::fetch_from_web(&ids) {
+                Ok(Some(pid)) => {
+                    log::info!("fetched web render {:04x} for {}", pid, device.name);
                     fetched_any = true;
                 }
-                Err(e) => log::warn!("artwork for {} not fetched: {e}", device.name),
+                Ok(None) => log::info!("no known render for {}", device.name),
+                Err(e) => log::warn!("web render for {} not fetched: {e}", device.name),
             }
         }
         if fetched_any {

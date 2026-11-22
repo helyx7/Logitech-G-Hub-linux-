@@ -294,7 +294,7 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="046d", TAG+="uaccess"`;
     <Toggle
       checked={configStore.settings.autoFetchArtwork}
       label="Fetch artwork automatically"
-      description="Download a device's depot from Logitech the first time it is seen, as G HUB does."
+      description="Download a device's picture from Logitech the first time it is seen: its G HUB depot when one is imported, otherwise the product image from Logitech's website."
       onchange={(v) => save({ autoFetchArtwork: v })}
     />
   </section>

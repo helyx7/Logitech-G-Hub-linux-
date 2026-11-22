@@ -83,6 +83,73 @@ pub fn layout_for(product_ids: &[u16]) -> Option<crate::depot::ArtworkLayout> {
     None
 }
 
+/// Product renders on Logitech's public CDN, one line per product id. Shared
+/// with `scripts/fetch-artwork.sh`.
+const WEB_SOURCES: &str = include_str!("../data/artwork-sources.tsv");
+
+/// Cloudinary transform: cap the width, force PNG. Deliberately no `d_…`
+/// default image, so a wrong path is a 404 instead of a blank placeholder.
+const CDN_TRANSFORM: &str = "w_1200,c_limit,q_auto,f_png";
+
+/// Smaller than this is not a product render (the CDN's blank image is 95 bytes).
+const MIN_RENDER_BYTES: usize = 2048;
+
+/// The CDN URL of the render for `product_id`, if the table lists it.
+pub fn web_url(product_id: u16) -> Option<String> {
+    let wanted = key(product_id);
+    WEB_SOURCES
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .filter_map(|l| {
+            let mut cols = l.split('\t');
+            Some((cols.next()?, cols.next()?, cols.next()?))
+        })
+        .find(|(id, _, _)| id.eq_ignore_ascii_case(&wanted))
+        .and_then(|(_, site, path)| {
+            let prefix = match site {
+                "g" => "https://resource.logitechg.com",
+                "l" => "https://resource.logitech.com",
+                _ => return None,
+            };
+            let dam = if site == "g" { "gaming" } else { "logitech" };
+            Some(format!("{prefix}/{CDN_TRANSFORM}/content/dam/{dam}/en/products/{path}"))
+        })
+}
+
+fn is_png(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+}
+
+/// Downloads the render for the first of `product_ids` the table lists and
+/// saves it as `<that id>.png`. Returns the id it saved, or `None` when the
+/// table has none of them.
+pub fn fetch_from_web(product_ids: &[u16]) -> Result<Option<u16>, String> {
+    let Some((pid, url)) = product_ids.iter().find_map(|p| web_url(*p).map(|u| (*p, u))) else {
+        return Ok(None);
+    };
+    let response = ureq::get(&url)
+        .timeout(std::time::Duration::from_secs(30))
+        .call()
+        .map_err(|e| format!("download of {url}: {e}"))?;
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    response
+        .into_reader()
+        .take(16 * 1024 * 1024)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("reading {url}: {e}"))?;
+    if !is_png(&bytes) || bytes.len() < MIN_RENDER_BYTES {
+        return Err(format!("{url} did not return a product image"));
+    }
+    let dir = ensure_dir().map_err(|e| e.to_string())?;
+    let out = dir.join(format!("{}.png", key(pid)));
+    let part = dir.join(format!("{}.png.part", key(pid)));
+    std::fs::write(&part, &bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&part, &out).map_err(|e| e.to_string())?;
+    Ok(Some(pid))
+}
+
 /// The key a zone mask must be filed under.
 pub fn zone_key(product_id: u16, zone: u8) -> String {
     format!("{}-zone{zone}", key(product_id))
@@ -143,6 +210,30 @@ pub fn scan() -> HashMap<String, PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn web_table_builds_urls_for_both_sites() {
+        assert_eq!(
+            web_url(0x4099).as_deref(),
+            Some("https://resource.logitechg.com/w_1200,c_limit,q_auto,f_png/content/dam/gaming/en/products/g502x-plus/2026-update/gallery/g502-x-plus-top-angle-black-gallery-1.png")
+        );
+        assert_eq!(
+            web_url(0xb378).as_deref(),
+            Some("https://resource.logitech.com/w_1200,c_limit,q_auto,f_png/content/dam/logitech/en/products/keyboards/mx-keys-s/product-gallery/graphite/mx-keys-s-keyboard-top-view-graphite-us.png")
+        );
+        assert_eq!(web_url(0xffff), None);
+    }
+
+    #[test]
+    fn every_web_table_line_is_well_formed() {
+        for line in WEB_SOURCES.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
+            let cols: Vec<&str> = line.split('\t').collect();
+            assert_eq!(cols.len(), 3, "{line:?}");
+            assert!(cols[0].len() == 4 && cols[0].chars().all(|c| c.is_ascii_hexdigit()), "{line:?}");
+            assert!(cols[1] == "g" || cols[1] == "l", "{line:?}");
+            assert!(cols[2].ends_with(".png"), "{line:?}");
+        }
+    }
 
     #[test]
     fn keys_are_four_digit_lowercase_hex() {
