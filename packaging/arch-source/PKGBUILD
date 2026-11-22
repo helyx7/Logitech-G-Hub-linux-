@@ -1,0 +1,70 @@
+# Builds OpenGHub from THIS repository checkout (its committed state), so local
+# changes such as the Bluetooth fix are included. Used by scripts/update.sh.
+#
+#   cd packaging/arch-source && makepkg -si
+#
+# Uncommitted changes are not built: commit them first.
+pkgname=openghub-local
+pkgver=0.1.4
+pkgrel=1
+pkgdesc="Open source Logitech G HUB for Linux, built from your local OpenGHub repository"
+arch=('x86_64')
+url="https://github.com/Slyvan25/OpenGHub"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'libayatana-appindicator' 'systemd-libs' 'gtk3')
+makedepends=('git' 'rust' 'nodejs' 'npm')
+optdepends=('gstreamer: screen sampler'
+            'gst-plugin-pipewire: screen sampler'
+            'libpulse: audio visualizer (parec)')
+provides=('openghub')
+conflicts=('openghub' 'openghub-bin')
+install=openghub-local.install
+_repo="$(cd "$startdir/../.." && pwd)"
+source=("openghub::git+file://${_repo}")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd openghub
+    local base
+    base=$(sed -n 's/^version = "\(.*\)"/\1/p' src-tauri/Cargo.toml | head -n1)
+    printf '%s.r%s.g%s' "$base" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cd openghub
+    npm ci --no-audit --no-fund
+    # `tauri build` (not plain cargo) turns on the custom-protocol feature, so
+    # the app loads its bundled UI instead of the dev server.
+    npx tauri build --no-bundle
+}
+
+check() {
+    cd openghub/src-tauri
+    cargo test --release --lib
+}
+
+package() {
+    cd openghub
+    install -Dm755 src-tauri/target/release/openghub "$pkgdir/usr/bin/openghub"
+    install -Dm644 packaging/70-openghub.rules "$pkgdir/usr/lib/udev/rules.d/70-openghub.rules"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+    install -Dm644 src-tauri/icons/32x32.png "$pkgdir/usr/share/icons/hicolor/32x32/apps/openghub.png"
+    install -Dm644 src-tauri/icons/128x128.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/openghub.png"
+    install -Dm644 src-tauri/icons/128x128@2x.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/openghub.png"
+
+    # Same entry the release .deb ships, plus launcher search keywords.
+    install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/OpenGHub.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=OpenGHub
+GenericName=Logitech G HUB
+Comment=Open source Logitech G HUB for Linux
+Exec=openghub
+Icon=openghub
+StartupWMClass=openghub
+Terminal=false
+Categories=Utility;Settings;HardwareSettings;
+Keywords=logitech;g hub;ghub;mouse;keyboard;headset;wheel;dpi;rgb;lighting;
+EOF
+}

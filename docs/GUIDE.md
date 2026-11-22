@@ -32,22 +32,26 @@ same time and fight with OpenGHub. Quit them while you use it.
 
 ## 2. Install
 
-You need `git` and `base-devel` (already there on CachyOS).
+This builds the app from this repository, so you get its fixes (Bluetooth, device pictures)
+on top of the original OpenGHub.
 
 ```sh
-# 1. Download this repository (skip if you already have it)
+# 1. Tools needed to build (one time)
+sudo pacman -S --needed git base-devel rust nodejs npm
+
+# 2. Download this repository (skip if you already have it)
 git clone https://github.com/helyx7/Logitech-G-Hub-linux-.git ~/work/Logitech-G-Hub-linux-
 
-# 2. Go to the Arch packaging folder
-cd ~/work/Logitech-G-Hub-linux-/packaging/arch
+# 3. Add the "logitech" terminal command
+ln -sf ~/work/Logitech-G-Hub-linux-/scripts/logitech ~/.local/bin/logitech
 
-# 3. Build and install the package (asks for your password)
-makepkg -si
+# 4. Build and install (takes a few minutes, asks for your password)
+logitech update
 ```
 
-What `makepkg -si` does: downloads the official OpenGHub release, checks its checksum,
-turns it into an Arch package, and installs it with `pacman`. Pacman then knows about it,
-so you can update or remove it cleanly later.
+`logitech update` builds an Arch package called `openghub-local` and installs it with
+`pacman`, so you can remove it cleanly later. If you installed `openghub-bin` before,
+pacman offers to replace it: answer **y**.
 
 The package also installs a *udev rule* (`/usr/lib/udev/rules.d/70-openghub.rules`). It
 lets the person sitting at the computer use Logitech devices without root. It does not open
@@ -59,27 +63,28 @@ Optional extras for screen-reactive and music-reactive lighting:
 sudo pacman -S --needed gstreamer gst-plugin-pipewire libpulse
 ```
 
-## 3. Open the app
+<details>
+<summary>Prefer the unmodified official release?</summary>
 
-Any of these works:
+`cd packaging/arch && makepkg -si` installs `openghub-bin`, built from the original
+project's release. It does not have this repository's fixes.
+</details>
+
+## 3. Open the app
 
 | Where | What to do |
 | --- | --- |
 | App launcher | Search **logitech**, **g hub**, **mouse** or **OpenGHub** |
-| Terminal | Type `openghub` |
-| Terminal (shortcut) | Type `logitech`: it opens the app and gives your terminal back. See below. |
+| Terminal | Type `logitech`: it opens the app and gives your terminal back |
 
-To add the `logitech` command yourself, save this as `~/.local/bin/logitech` and run
-`chmod +x ~/.local/bin/logitech`:
+All `logitech` commands:
 
-```bash
-#!/usr/bin/env bash
-# Open OpenGHub without tying up the terminal. "logitech --wait" shows its logs.
-set -euo pipefail
-command -v openghub >/dev/null || { echo "OpenGHub is not installed" >&2; exit 1; }
-if [[ "${1:-}" == "--wait" ]]; then shift; exec openghub "$@"; fi
-setsid -f openghub "$@" >/dev/null 2>&1 </dev/null
-```
+| Command | What it does |
+| --- | --- |
+| `logitech` | Opens the app |
+| `logitech --wait` | Opens it in the terminal and shows its messages (for errors) |
+| `logitech update` | Updates everything and reinstalls (see [Update](#7-update)) |
+| `logitech images` | Downloads pictures for the connected devices |
 
 ## 4. First launch: device access
 
@@ -116,16 +121,22 @@ a fixed colour on the device.
 
 ## 7. Update
 
-Get the newest version of this repository, then rebuild:
-
 ```sh
-cd ~/work/Logitech-G-Hub-linux-
-git pull
-cd packaging/arch && makepkg -si
+logitech update
 ```
 
-When a new OpenGHub version comes out, the person who maintains this repository updates
-`pkgver` and `sha256sums` in [`packaging/arch/PKGBUILD`](../packaging/arch/PKGBUILD).
+That one command:
+
+1. gets the newest version of this repository from GitHub,
+2. merges in new work from the [original OpenGHub](https://github.com/Slyvan25/OpenGHub),
+3. pushes the result back to this repository on GitHub,
+4. rebuilds the app and reinstalls it (asks for your password).
+
+If nothing changed, it says so and stops. It also stops, changing nothing, if you have
+unsaved edits in the repository or if the original project's changes clash with this
+repository's. The message tells you what to do.
+
+Options: `logitech update --no-upstream` skips step 2, `--no-push` skips step 3.
 
 ## 8. Troubleshooting
 
@@ -143,6 +154,16 @@ Check access: `ls -l /dev/hidraw*`. A `+` at the end of the permissions (for exa
 **Settings jump back or act strangely.** Another tool is talking to the device. Quit
 Solaar, Piper and `ratbagd`: `systemctl stop ratbagd`.
 
+**No picture for my device.** Run `logitech images`. It lists the devices it has no picture
+for. Save the product image from logitechg.com or logitech.com as
+`~/.local/share/openghub/devices/<product-id>.png`, and add a line to
+[`src-tauri/data/artwork-sources.tsv`](../src-tauri/data/artwork-sources.tsv) so it works for
+everyone after the next update.
+
+**Bluetooth device missing.** First pair it in your desktop's Bluetooth settings and check
+it types or moves normally. Then restart OpenGHub. Check the system sees it:
+`bluetoothctl devices Connected`.
+
 **The app won't open.** Run `logitech --wait` (or `openghub`) in a terminal and read the
 error. Include it when you ask for help.
 
@@ -155,8 +176,8 @@ More detail: [permissions.md](permissions.md), [hidpp.md](hidpp.md),
 ## 9. Uninstall
 
 ```sh
-sudo pacman -R openghub-bin      # removes the app and its udev rule
-rm -f ~/.local/bin/logitech      # removes the terminal shortcut, if you added it
+sudo pacman -R openghub-local    # removes the app and its udev rule (openghub-bin if you used that)
+rm -f ~/.local/bin/logitech      # removes the terminal shortcut
 ```
 
 Your profiles stay in `~/.config/openghub/` and `~/.local/share/openghub/`. Delete those

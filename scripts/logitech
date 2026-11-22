@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# OpenGHub (Logitech G HUB for Linux) shortcut.
+#   logitech           open the app without tying up the terminal
+#   logitech --wait    run in the foreground and show its log output
+#   logitech update    update from GitHub, rebuild and reinstall
+#   logitech images    download pictures for the connected devices
+#
+# Install: ln -sf "$PWD/scripts/logitech" ~/.local/bin/logitech
+set -euo pipefail
+
+# The repository this script lives in, following the ~/.local/bin symlink.
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+
+case "${1:-}" in
+    update)
+        shift
+        exec "$REPO/scripts/update.sh" "$@"
+        ;;
+    images)
+        shift
+        exec "$REPO/scripts/fetch-artwork.sh" "$@"
+        ;;
+    -h|--help)
+        sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+esac
+
+if ! command -v openghub >/dev/null 2>&1; then
+    echo "OpenGHub is not installed. Run: logitech update" >&2
+    exit 1
+fi
+
+if [[ "${1:-}" == "--wait" ]]; then
+    shift
+    exec openghub "$@"
+fi
+
+setsid -f openghub "$@" >/dev/null 2>&1 </dev/null

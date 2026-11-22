@@ -1,0 +1,6 @@
+# makepkg output
+openghub/
+src/
+pkg/
+*.pkg.tar.*
+*.log

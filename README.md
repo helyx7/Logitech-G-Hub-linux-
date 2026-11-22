@@ -31,20 +31,27 @@
 > [!NOTE]
 > **About this repository.** This is helyx7's copy of [Slyvan25/OpenGHub](https://github.com/Slyvan25/OpenGHub), kept with its full history and MIT licence. All credit for the code goes to the original author, Silvan Paul. OpenGHub is not affiliated with or endorsed by Logitech.
 >
-> Changes in this copy: a fixed Arch package ([`packaging/arch/PKGBUILD`](packaging/arch/PKGBUILD)) and a step-by-step [beginner guide](docs/GUIDE.md).
+> Changes in this copy:
+> - **Bluetooth works**: devices connected straight over Bluetooth are found and shown as Bluetooth (tested with an MX Keys S).
+> - **Device pictures download on their own** from Logitech's site, no G HUB install needed.
+> - **One-command updates**: `logitech update` pulls, merges the original project, rebuilds and reinstalls.
+> - A fixed Arch package and a step-by-step [beginner guide](docs/GUIDE.md).
 
 ## Quick install (Arch / CachyOS)
 
 ```sh
+sudo pacman -S --needed git base-devel rust nodejs npm      # build tools, one time
 git clone https://github.com/helyx7/Logitech-G-Hub-linux-.git ~/work/Logitech-G-Hub-linux-
-cd ~/work/Logitech-G-Hub-linux-/packaging/arch
-makepkg -si          # builds the package from the official release and installs it
+ln -sf ~/work/Logitech-G-Hub-linux-/scripts/logitech ~/.local/bin/logitech
+logitech update      # builds from this repo and installs it (asks for your password)
 ```
 
-Then unplug and replug your device (or its receiver), and search **logitech** in your app launcher. The full walkthrough is in the [beginner guide](docs/GUIDE.md).
+Then unplug and replug your device (or its receiver), and search **logitech** in your app launcher or type `logitech`. Later, `logitech update` is all you need to stay current. The full walkthrough is in the [beginner guide](docs/GUIDE.md).
 
 <details>
-<summary>Why not the release's own PKGBUILD?</summary>
+<summary>Unmodified official release instead</summary>
+
+`cd packaging/arch && makepkg -si` installs `openghub-bin` from the original v0.1.4 release, without this copy's fixes.
 
 The `PKGBUILD` attached to the v0.1.4 release fails in `package()`: it copies the udev rule onto itself, and `install` refuses that ("are the same file"). It also skips the checksum. The copy in `packaging/arch/` fixes both, and adds launcher keywords so searching "logitech" finds the app. The `openghub-bin` AUR package the table below mentions is not published yet.
 </details>
