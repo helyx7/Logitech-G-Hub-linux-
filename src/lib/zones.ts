@@ -130,6 +130,55 @@ export const MOUSE_CONTROLS: Record<string, ControlSpot> = {
   "wheel-right": { dot: { x: 0.57, y: 0.33 }, label: { x: 0.96, y: 0.6 }, side: "right" },
 };
 
+/**
+ * Button positions measured on a specific product render, for models with no
+ * imported G HUB layout. `aspect` is that render's width / height, so the
+ * fractions land on the right pixels.
+ */
+export interface RenderLayout {
+  /** Product ids whose render (from `src-tauri/data/artwork-sources.tsv`) this matches. */
+  productIds: number[];
+  aspect: number;
+  spots: Record<string, ControlSpot>;
+}
+
+/** Left/right label columns sit just beside the mouse, inside the render's margins. */
+const L = 0.25;
+const R = 0.75;
+
+/**
+ * G502 X PLUS, top view (`g502-x-plus-top-angle-black-gallery-1.png`,
+ * 1200 x 1037). `button-N` follows the onboard table in Assignments.svelte:
+ * 4 = G4 back, 5 = G6 DPI shift, 6 = G5 forward, 7/8 = wheel tilt,
+ * 9 = G9, 10 = G8, 11 = G7. The thumb buttons are on the side, so their dots
+ * sit on the left edge: G5 in front of G4 along the strip above the thumb
+ * rest, G6 at the rest's front corner.
+ */
+const G502X_PLUS_TOP: RenderLayout = {
+  productIds: [0x4099, 0xc095],
+  aspect: 1200 / 1037,
+  spots: {
+    "button-1": { dot: { x: 0.433, y: 0.212 }, label: { x: L, y: 0.06 }, side: "left" },
+    "button-10": { dot: { x: 0.375, y: 0.258 }, label: { x: L, y: 0.16 }, side: "left" },
+    "button-7": { dot: { x: 0.473, y: 0.294 }, label: { x: L, y: 0.26 }, side: "left" },
+    "button-6": { dot: { x: 0.335, y: 0.328 }, label: { x: L, y: 0.36 }, side: "left" },
+    "button-11": { dot: { x: 0.367, y: 0.333 }, label: { x: L, y: 0.46 }, side: "left" },
+    "button-4": { dot: { x: 0.335, y: 0.4 }, label: { x: L, y: 0.56 }, side: "left" },
+    "button-5": { dot: { x: 0.321, y: 0.442 }, label: { x: L, y: 0.66 }, side: "left" },
+    "button-3": { dot: { x: 0.523, y: 0.289 }, label: { x: 0.5, y: 0.02 }, side: "top" },
+    "button-2": { dot: { x: 0.613, y: 0.222 }, label: { x: R, y: 0.14 }, side: "right" },
+    "button-8": { dot: { x: 0.575, y: 0.289 }, label: { x: R, y: 0.3 }, side: "right" },
+    "button-9": { dot: { x: 0.527, y: 0.473 }, label: { x: R, y: 0.48 }, side: "right" },
+  },
+};
+
+const RENDER_LAYOUTS: RenderLayout[] = [G502X_PLUS_TOP];
+
+/** The measured layout for the first of `productIds` that has one. */
+export function renderLayoutFor(productIds: number[]): RenderLayout | null {
+  return RENDER_LAYOUTS.find((l) => l.productIds.some((id) => productIds.includes(id))) ?? null;
+}
+
 export const KEYBOARD_CONTROLS: Record<string, ControlSpot> = Object.fromEntries(
   Array.from({ length: 12 }, (_, i) => [
     `g-${i + 1}`,

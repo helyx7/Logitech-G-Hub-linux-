@@ -18,7 +18,7 @@
   import Icon, { type IconName } from "$lib/components/Icon.svelte";
   import { artworkIds } from "$lib/device-ui";
   import { artwork } from "$lib/stores/artwork.svelte";
-  import { controlSpots, type ControlSpot } from "$lib/zones";
+  import { controlSpots, renderLayoutFor, type ControlSpot } from "$lib/zones";
   import { configStore } from "$lib/stores/config.svelte";
   import { ui } from "$lib/stores/ui.svelte";
   import type { ApplicationCommands, Assignment, Device } from "$lib/types";
@@ -610,7 +610,19 @@
    * draws, and it knows which buttons are visible in which view. Without one,
    * the per-category guesses apply.
    */
+  /**
+   * No imported layout, but the downloaded product render is showing and we
+   * measured its buttons: use those, with the render's real proportions.
+   */
+  const renderLayout = $derived.by(() => {
+    if (layoutView || view !== "front") return null;
+    const ids = artworkIds(device);
+    const measured = renderLayoutFor(ids);
+    return measured && artwork.forProductIds(measured.productIds) ? measured : null;
+  });
+
   const spots = $derived.by<Record<string, ControlSpot>>(() => {
+    if (renderLayout) return renderLayout.spots;
     if (!layoutView) return controlSpots(device.kind, device.capabilities.gKeys ?? 0);
     const exact: Record<string, ControlSpot> = {};
     if (device.kind === "wheel") {
@@ -660,7 +672,9 @@
   // so the overlay is sized to the image's letterboxed rectangle, not the box.
   let boxW = $state(1);
   let boxH = $state(1);
-  const imgAspect = $derived(layoutView ? layoutView.width / layoutView.height : 0.6);
+  const imgAspect = $derived(
+    layoutView ? layoutView.width / layoutView.height : renderLayout ? renderLayout.aspect : 0.6,
+  );
   const imgRect = $derived.by(() => {
     // Leave room either side for labels: the image gets the middle 56%.
     const availW = boxW * 0.56;
