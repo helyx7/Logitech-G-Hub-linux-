@@ -21,6 +21,24 @@
 
 ---
 
+> [!NOTE]
+> **About this repository.** This is helyx7's copy of [Slyvan25/OpenGHub](https://github.com/Slyvan25/OpenGHub), kept with its full history and MIT licence. All credit for the code goes to the original author, Silvan Paul. OpenGHub is not affiliated with Logitech.
+>
+> **Quick install on Arch / CachyOS** (the `openghub-bin` AUR package mentioned below is not published yet):
+>
+> ```sh
+> mkdir -p ~/tools/openghub-pkg && cd ~/tools/openghub-pkg
+> gh release download v0.1.4 -R Slyvan25/OpenGHub -p PKGBUILD -p openghub-bin.install
+> makepkg -si
+> ```
+>
+> **Getting updates from the original project:**
+>
+> ```sh
+> git remote add upstream https://github.com/Slyvan25/OpenGHub.git   # once
+> git pull upstream master && git push origin master
+> ```
+
 OpenGHub talks to Logitech peripherals directly over **HID++ 2.0** through `hidraw`, the way G HUB does on Windows — so the things the device itself supports work exactly as they do there, and the things G HUB does in software are done here in userspace. Built with Tauri 2, Svelte 5 and Rust.
 
 ## Install
@@ -31,7 +49,7 @@ Grab the package for your distribution from the [latest release](https://github.
 | --- | --- | --- |
 | Debian, Ubuntu, Mint, Pop!_OS | `OpenGHub_x.y.z_amd64.deb` | `sudo apt install ./OpenGHub_*_amd64.deb` |
 | Fedora, openSUSE, RHEL | `OpenGHub-x.y.z-1.x86_64.rpm` | `sudo dnf install ./OpenGHub-*.rpm` |
-| Arch, Manjaro, EndeavourOS | `PKGBUILD` | `makepkg -si` in a folder with the PKGBUILD (AUR: `openghub-bin`) |
+| Arch, Manjaro, EndeavourOS, CachyOS | `PKGBUILD` + `openghub-bin.install` | `makepkg -si` in a folder with both files (not on the AUR yet) |
 | Flatpak (any distribution) | `OpenGHub_x.y.z.flatpak` | `flatpak install --user OpenGHub_*.flatpak` |
 | Anything else | `OpenGHub_x.y.z_amd64.AppImage` | `chmod +x OpenGHub_*.AppImage && ./OpenGHub_*.AppImage` |
 
